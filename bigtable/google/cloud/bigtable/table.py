@@ -52,6 +52,7 @@ _MAX_BULK_MUTATIONS = 100000
 VIEW_NAME_ONLY = enums.Table.View.NAME_ONLY
 _MAX_THREAD_LIMIT = 10
 
+
 class _BigtableRetryableError(Exception):
     """Retry-able error expected by the default retry strategy."""
 
@@ -476,7 +477,7 @@ class Table(object):
         )
         return self.read_rows(**kwargs)
 
-    def mutate_rows(self, batches, retry=DEFAULT_RETRY):
+    def mutate_rows(self, rows, retry=DEFAULT_RETRY):
         """Mutates multiple rows in bulk.
 
         For example:
@@ -511,10 +512,13 @@ class Table(object):
                   corresponding to success or failure of each row mutation
                   sent. These will be in the same order as the `rows`.
         """
+
+        mutate_batcher = self.mutations_batcher()
+        mutate_batcher.mutate_rows(rows)
         retryable_mutate_rows = _RetryableMutateRowsWorker(
             self._instance._client,
             self.name,
-            batches,
+            mutate_batcher.batches,
             app_profile_id=self._app_profile_id,
             timeout=self.mutation_timeout,
         )
@@ -672,11 +676,14 @@ class _RetryableMutateRowsWorker(object):
     # pylint: enable=unsubscriptable-object
 
     def __init__(self, client, table_name, batches, app_profile_id=None, timeout=None):
+
         self.client = client
         self.table_name = table_name
-        self.batches = dict([(index,batch) for index, batch in enumerate(self.batches)])
+        self.batches = dict([(index, batch) for index, batch in enumerate(batches)])
         self.app_profile_id = app_profile_id
-        self.responses_statuses = dict([(index,[None] * len(batch)) for index, batch in enumerate(self.batches)])
+        self.responses_statuses = dict(
+            [(index, [None] * len(batch)) for index, batch in enumerate(batches)]
+        )
         self.timeout = timeout
         self.latest_executing_batch_index = 0
         self.no_of_batches = len(batches)
@@ -696,15 +703,17 @@ class _RetryableMutateRowsWorker(object):
         max_thread_to_start = min(self.no_of_batches, _MAX_THREAD_LIMIT)
         lock = threading.Lock()
         thread_list = []
+
         for _ in range(max_thread_to_start):
-            thread = threading.Thread(target=self.thread_func, args=(lock, retry,))
+            thread = threading.Thread(target=self.thread_func, args=(lock, retry))
             thread.start()
             thread_list.append(thread)
         for thread in thread_list:
             thread.join()
+
         return self.responses_statuses
 
-    def thread_func(self,lock ,retry=DEFAULT_RETRY):
+    def thread_func(self, lock, retry=DEFAULT_RETRY):
         while not self.is_operation_completed:
             lock.acquire()
             current_batch_index = self.latest_executing_batch_index
@@ -746,9 +755,11 @@ class _RetryableMutateRowsWorker(object):
                    match the number of rows that were retried
         """
         batch = self.batches[batch_index]
+
         responses_statuses = self.responses_statuses[batch_index]
         retryable_rows = []
         index_into_all_rows = []
+
         for index, status in enumerate(responses_statuses):
             if self._is_retryable(status):
                 retryable_rows.append(batch[index])
