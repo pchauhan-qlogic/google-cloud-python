@@ -36,6 +36,7 @@ from google.cloud.bigtable.row_data import DEFAULT_RETRY_READ_ROWS
 from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.row_set import RowRange
 from google.cloud.bigtable import enums
+from google.cloud.bigtable.region_locator import RegionLocation
 from google.cloud.bigtable_v2.proto import bigtable_pb2 as data_messages_v2_pb2
 from google.cloud.bigtable_admin_v2.proto import table_pb2 as admin_messages_v2_pb2
 from google.cloud.bigtable_admin_v2.proto import (
@@ -653,6 +654,26 @@ class Table(object):
                 Default is MAX_ROW_BYTES (5 MB).
         """
         return MutationsBatcher(self, flush_count, max_row_bytes)
+
+    def regions(self):
+        """Retrieve the regions for this table.
+        :rtype : list
+        :returns : A list of :class:`~google.cloud.bigtable.happybase.region_locator.RegionLocation` objects.
+          lists regions for every row key of sample row keys of this table. every region's start key is previous row
+          key if it differs from current row key or None byte and end key is current row key. if table have not any
+          sample row key it return list with one region in with None byte start key and None byte end key.
+        """
+        regions = []
+        start_key = b""
+        for sample_row_key in self.sample_row_keys():
+            end_key = sample_row_key.row_key
+            if start_key is not end_key:
+                regions.append(RegionLocation(start_key, end_key))
+                start_key = end_key
+        end_key = b""
+        if not regions or start_key is not end_key:
+            regions.append(RegionLocation(start_key, end_key))
+        return regions
 
 
 class _RetryableMutateRowsWorker(object):

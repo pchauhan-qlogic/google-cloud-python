@@ -1031,6 +1031,131 @@ class TestTable(unittest.TestCase):
         self.assertEqual(mutation_batcher.flush_count, flush_count)
         self.assertEqual(mutation_batcher.max_row_bytes, max_row_bytes)
 
+    def test_region__eq__(self):
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        region1 = RegionLocation(start_key=b"split_key_1", end_key=b"split_key_10")
+        region2 = RegionLocation(start_key=b"split_key_1", end_key=b"split_key_10")
+        self.assertEqual(region1, region2)
+
+    def test_region__eq__differ(self):
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        region1 = RegionLocation(start_key=b"split_key_1", end_key=b"split_key_10")
+        region2 = object()
+        self.assertNotEqual(region1, region2)
+
+    def test_region__ne__(self):
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        region1 = RegionLocation(start_key=b"split_key_1", end_key=b"split_key_10")
+        region2 = RegionLocation(start_key=b"split_key_3", end_key=b"split_key_4")
+        self.assertNotEqual(region1, region2)
+
+    def test_region__ne__same_value(self):
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        region1 = RegionLocation(start_key=b"split_key_1", end_key=b"split_key_10")
+        region2 = RegionLocation(start_key=b"split_key_1", end_key=b"split_key_10")
+        comparison_value = region1 != region2
+        self.assertFalse(comparison_value)
+
+    def test_regions_with_initial_split_keys_from_middle(self):
+        from google.cloud.bigtable_v2.gapic import bigtable_client
+        from google.cloud.bigtable_admin_v2.gapic import bigtable_table_admin_client
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        data_api = bigtable_client.BigtableClient(mock.Mock())
+        table_api = bigtable_table_admin_client.BigtableTableAdminClient(mock.Mock())
+        credentials = _make_credentials()
+        client = self._make_client(
+            project="project-id", credentials=credentials, admin=True
+        )
+        client._table_data_client = data_api
+        client._table_admin_client = table_api
+        instance = client.instance(instance_id=self.INSTANCE_ID)
+        table = self._make_one(self.TABLE_ID, instance)
+
+        # Create response_iterator
+        initial_split_keys = [
+            b"split_key_01",
+            b"split_key_10",
+        ]  # Just passed to a mock.
+        side_effect_result = [
+            _MockSampleRowKey(split_key) for split_key in initial_split_keys
+        ]
+
+        # Patch the stub used by the API method.
+        inner_api_calls = client._table_data_client._inner_api_calls
+        inner_api_calls["sample_row_keys"] = mock.Mock(side_effect=[side_effect_result])
+        expected_region_list = [
+            RegionLocation(end_key=b"split_key_01"),
+            RegionLocation(start_key=b"split_key_01", end_key=b"split_key_10"),
+            RegionLocation(start_key=b"split_key_10"),
+        ]
+        region_list = table.regions()
+        self.assertEqual(region_list, expected_region_list)
+
+    def test_region_initial_split_keys_with_end(self):
+        from google.cloud.bigtable_v2.gapic import bigtable_client
+        from google.cloud.bigtable_admin_v2.gapic import bigtable_table_admin_client
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        data_api = bigtable_client.BigtableClient(mock.Mock())
+        table_api = bigtable_table_admin_client.BigtableTableAdminClient(mock.Mock())
+        credentials = _make_credentials()
+        client = self._make_client(
+            project="project-id", credentials=credentials, admin=True
+        )
+        client._table_data_client = data_api
+        client._table_admin_client = table_api
+        instance = client.instance(instance_id=self.INSTANCE_ID)
+        table = self._make_one(self.TABLE_ID, instance)
+
+        # Create response_iterator
+        initial_split_keys = [b"split_key_01", b""]  # Just passed to a mock.
+        side_effect_result = [
+            _MockSampleRowKey(split_key) for split_key in initial_split_keys
+        ]
+
+        # Patch the stub used by the API method.
+        inner_api_calls = client._table_data_client._inner_api_calls
+        inner_api_calls["sample_row_keys"] = mock.Mock(side_effect=[side_effect_result])
+        expected_region_list = [
+            RegionLocation(end_key=b"split_key_01"),
+            RegionLocation(start_key=b"split_key_01"),
+        ]
+        region_list = table.regions()
+        self.assertEqual(region_list, expected_region_list)
+
+    def test_region_empty_row_key(self):
+        from google.cloud.bigtable_v2.gapic import bigtable_client
+        from google.cloud.bigtable_admin_v2.gapic import bigtable_table_admin_client
+        from google.cloud.bigtable.region_locator import RegionLocation
+
+        data_api = bigtable_client.BigtableClient(mock.Mock())
+        table_api = bigtable_table_admin_client.BigtableTableAdminClient(mock.Mock())
+        credentials = _make_credentials()
+        client = self._make_client(
+            project="project-id", credentials=credentials, admin=True
+        )
+        client._table_data_client = data_api
+        client._table_admin_client = table_api
+        instance = client.instance(instance_id=self.INSTANCE_ID)
+        table = self._make_one(self.TABLE_ID, instance)
+
+        # Create response_iterator
+        initial_split_keys = [b""]  # Just passed to a mock.
+        side_effect_result = [
+            _MockSampleRowKey(split_key) for split_key in initial_split_keys
+        ]
+
+        # Patch the stub used by the API method.
+        inner_api_calls = client._table_data_client._inner_api_calls
+        inner_api_calls["sample_row_keys"] = mock.Mock(side_effect=[side_effect_result])
+        region_list = table.regions()
+        self.assertEqual(region_list, [RegionLocation()])
+
 
 class Test__RetryableMutateRowsWorker(unittest.TestCase):
     from grpc import StatusCode
@@ -1813,3 +1938,9 @@ def _ClusterStatePB(replication_state):
 
 def _read_rows_retry_exception(exc):
     return isinstance(exc, DeadlineExceeded)
+
+
+class _MockSampleRowKey(object):
+    def __init__(self, row_key=b"", offset_bytes=0):
+        self.row_key = row_key
+        self.offset_bytes = offset_bytes
