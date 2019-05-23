@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import enum
 import unittest
 
 _PROJECT = "PROJECT"
@@ -220,6 +221,24 @@ class TestEntity(unittest.TestCase):
         entity.update(entity_vals)
         expected = "<Entity%s %s>" % (flat_path, entity_vals)
         self.assertEqual(repr(entity), expected)
+
+    def test__set_item(self):
+        key = _Key()
+        entity = self._make_one(key=key)
+        entity['type'] = EmployeeType.PART_TIME
+        self.assertEqual(entity['type'], EmployeeType.PART_TIME)
+
+    def test__set_item_w_value(self):
+        key = _Key()
+        entity = self._make_one(key=key)
+        entity['type'] = EmployeeType.PART_TIME.value
+        self.assertEqual(entity['type'], EmployeeType.PART_TIME)
+
+
+class EmployeeType(enum.IntEnum):
+    PART_TIME = 0
+    FULL_TIME = 1
+    REMOTE = 2
 
 
 class _Key(object):

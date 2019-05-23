@@ -15,6 +15,7 @@
 """Class for representing a single entity in the Cloud Datastore."""
 
 
+import enum
 from google.cloud._helpers import _ensure_tuple_or_list
 
 
@@ -211,3 +212,8 @@ class Entity(dict):
             )
         else:
             return "<Entity %s>" % (super(Entity, self).__repr__(),)
+
+    def __setitem__(self, key, value):
+        if isinstance(value, enum.IntEnum) or isinstance(value, enum.Enum):
+            return super(Entity, self).__setitem__(key, value.value)
+        return super(Entity, self).__setitem__(key, value)
